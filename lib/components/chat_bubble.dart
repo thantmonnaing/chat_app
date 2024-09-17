@@ -1,19 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../themes/theme_provider.dart';
 
 class ChatBubble extends StatelessWidget {
   final bool isCurrentUser;
-  final Alignment alignment;
   final String text;
 
   const ChatBubble(
-      {super.key, required this.isCurrentUser, required this.alignment,required this.text});
+      {super.key, required this.isCurrentUser, required this.text});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      alignment: alignment,
       decoration: BoxDecoration(
-        color: isCurrentUser ? Colors.green : Colors.grey,
+        color: Provider.of<ThemeProvider>(context, listen: false).isDarkMode ?
+        (isCurrentUser ? Colors.green.withOpacity(0.8) : Colors.grey.withOpacity(0.2)) : (isCurrentUser ? Colors.green : Colors.grey),
         borderRadius: BorderRadius.circular(12)
       ),
       padding: const EdgeInsets.all(16),

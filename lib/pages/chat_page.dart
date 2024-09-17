@@ -3,6 +3,7 @@ import 'package:chat_app/components/user_tile.dart';
 import 'package:chat_app/services/auth/auth_service.dart';
 import 'package:chat_app/services/chat/chat_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../components/chat_bubble.dart';
@@ -24,23 +25,63 @@ class _ChatPageState extends State<ChatPage> {
 
   final AuthService _authService = AuthService();
 
+  FocusNode focusNode = FocusNode();
+
   //message textField
   TextEditingController _messageTextController = TextEditingController();
+
+  @override
+  void initState() {
+    // TODO: implement initState
+    super.initState();
+    // first time scroll
+    Future.delayed(const Duration(milliseconds: 500), () => _scrollPosition());
+
+    // textField focus scroll position
+    focusNode.addListener(() {
+      if (focusNode.hasFocus) {
+        Future.delayed(
+            const Duration(milliseconds: 500), () => _scrollPosition());
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    // TODO: implement dispose
+    focusNode.dispose();
+    _messageTextController.dispose();
+    super.dispose();
+  }
+
+  ScrollController _scrollController = ScrollController();
+
+  void _scrollPosition() {
+    _scrollController.animateTo(_scrollController.position.maxScrollExtent,
+        duration: const Duration(seconds: 1), curve: Curves.fastOutSlowIn);
+  }
 
   //send message function
   void sendMessage() async {
     if (_messageTextController.text.isNotEmpty) {
       await _chatService
           .sendMessage(widget.receiverId, _messageTextController.text)
-          .then((_) => _messageTextController.clear());
+          .then((_) {
+        _messageTextController.clear();
+        _scrollPosition();
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.background,
       appBar: AppBar(
         title: Text(widget.receiverEmail),
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.grey,
+        elevation: 0,
       ),
       body: Column(
         children: [
@@ -74,6 +115,7 @@ class _ChatPageState extends State<ChatPage> {
 
           // return list data
           return ListView(
+            controller: _scrollController,
             children: snapshot.data!.docs
                 .map((doc) => _buildMessageItem(doc))
                 .toList(),
@@ -86,16 +128,14 @@ class _ChatPageState extends State<ChatPage> {
 
     //is currentuser?
 
-    bool isCurrentUser = data["uid"] == _authService.getCurrentUser()!.uid;
+    bool isCurrentUser = data["senderId"] == _authService.getCurrentUser()!.uid;
 
     final aligment =
-        isCurrentUser ? Alignment.centerLeft : Alignment.centerRight;
+        isCurrentUser ? Alignment.centerRight : Alignment.centerLeft;
 
-    return
-      Container(
+    return Container(
       alignment: aligment,
       child: ChatBubble(
-        alignment: aligment,
         text: data["message"],
         isCurrentUser: isCurrentUser,
       ),
@@ -109,6 +149,7 @@ class _ChatPageState extends State<ChatPage> {
       children: [
         Expanded(
             child: MyTextField(
+                focusNode: focusNode,
                 controller: _messageTextController,
                 obsecureText: false,
                 hintText: "Type a message...")),
