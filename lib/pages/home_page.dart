@@ -1,10 +1,12 @@
 import 'package:chat_app/components/user_tile.dart';
+import 'package:chat_app/pages/test_chat_page.dart';
 import 'package:chat_app/services/auth/auth_service.dart';
 import 'package:chat_app/services/chat/chat_service.dart';
 import 'package:flutter/material.dart';
 
 import '../components/my_drawer.dart';
 import 'chat_page.dart';
+import 'chat_pagination_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -63,7 +65,7 @@ class _HomePageState extends State<HomePage> {
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => ChatPage(
+            builder: (context) => TestChatPage(
                 receiverEmail: userData["email"], receiverId: userData["uid"]),
           ),
         ),

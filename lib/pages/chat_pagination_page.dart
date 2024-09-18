@@ -9,17 +9,17 @@ import 'package:flutter/material.dart';
 import '../components/chat_bubble.dart';
 import '../components/my_drawer.dart';
 
-class ChatPage extends StatefulWidget {
+class ChatPaginationPage extends StatefulWidget {
   final String receiverEmail;
   final String receiverId;
 
-  ChatPage({super.key, required this.receiverEmail, required this.receiverId});
+  ChatPaginationPage({super.key, required this.receiverEmail, required this.receiverId});
 
   @override
-  State<ChatPage> createState() => _ChatPageState();
+  State<ChatPaginationPage> createState() => _ChatPaginationPageState();
 }
 
-class _ChatPageState extends State<ChatPage> {
+class _ChatPaginationPageState extends State<ChatPaginationPage> {
   // chat & auth services
   final ChatService _chatService = ChatService();
 
