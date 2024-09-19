@@ -1,122 +1,106 @@
-import 'dart:async';
 
+import 'dart:async';
 import 'package:chat_app/components/my_textfield.dart';
 import 'package:chat_app/components/user_tile.dart';
 import 'package:chat_app/services/auth/auth_service.dart';
 import 'package:chat_app/services/chat/chat_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-
 import '../components/chat_bubble.dart';
-import '../components/my_drawer.dart';
 
 class TestChatPage extends StatefulWidget {
   final String receiverEmail;
   final String receiverId;
 
-  TestChatPage(
-      {super.key, required this.receiverEmail, required this.receiverId});
+  TestChatPage({super.key, required this.receiverEmail, required this.receiverId});
 
   @override
   State<TestChatPage> createState() => _TestChatPageState();
 }
 
 class _TestChatPageState extends State<TestChatPage> {
-  // chat & auth services
   final ChatService _chatService = ChatService();
-
   final AuthService _authService = AuthService();
 
-  FocusNode focusNode = FocusNode();
+  final FocusNode focusNode = FocusNode();
+  final TextEditingController _messageTextController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
-  //message textField
-  TextEditingController _messageTextController = TextEditingController();
-
-  List<DocumentSnapshot> _documents = [];
-  DocumentSnapshot? _lastDocument;
+  List<DocumentSnapshot> _messages = [];
   bool _loadingMore = false;
-  int _limit = 10;
-  bool _hasMoreData = true;
+  bool _hasMoreMessages = true;
+  DocumentSnapshot? _lastMessageDocument;
+  final int _messageLimit = 10; // Pagination limit (how many messages to load at once)
+  StreamSubscription<QuerySnapshot>? _messageSubscription;
 
-  final StreamController<List<DocumentSnapshot>> _streamController =
-      StreamController<List<DocumentSnapshot>>();
+  String chatRoomId = '';
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   @override
   void initState() {
-    // TODO: implement initState
     super.initState();
-    _getInitialData();
 
-    // textField focus scroll position
-    focusNode.addListener(() {
-      if (focusNode.hasFocus) {
-        Future.delayed(
-            const Duration(milliseconds: 500), () => _scrollDownPosition());
-      }
-    });
+    String currentUserId = _authService.getCurrentUser()!.uid;
+    List<String> ids = [widget.receiverId, currentUserId];
+    ids.sort(); //sort the ids (chatRoomId need to same for any two people)
+    chatRoomId = ids.join("_");
 
-    // Attach the scroll listener
+    _getInitialMessages();
+
+    // Attach scroll listener to load more messages when the user scrolls to the top
     _scrollController.addListener(() {
-      if (_scrollController.position.pixels ==
-              _scrollController.position.maxScrollExtent &&
-          !_loadingMore &&
-          _hasMoreData) {
-        _loadMoreData();
+      if (_scrollController.position.pixels == _scrollController.position.minScrollExtent && !_loadingMore && _hasMoreMessages) {
+        _loadMoreMessages();
+      }
+    });
+
+    // Set up real-time listener for new incoming messages
+    _listenForNewMessages();
+  }
+
+  // Fetch the initial batch of messages
+  void _getInitialMessages() async {
+    QuerySnapshot initialSnapshot = await _firestore
+        .collection("chat_rooms")
+        .doc(chatRoomId)
+        .collection('messages')
+        .orderBy('timestamp', descending: false)
+        .limit(20)
+        .get();
+
+    setState(() {
+      _messages = initialSnapshot.docs;
+      if (_messages.isNotEmpty) {
+        _lastMessageDocument = _messages.last;
       }
     });
   }
 
-  _getInitialData() async {
-    String senderId = _authService.getCurrentUser()!.uid;
-    _chatService
-        .getInitialStream(senderId, widget.receiverId)
-        .listen((snapshot) {
-      List<DocumentSnapshot> docs = snapshot.docs;
-      if (_documents.isEmpty) {
-        setState(() {
-          _documents = docs;
-          _lastDocument = docs.isNotEmpty ? docs.last : null;
-        });
-      } else {
-        setState(() {
-          // Handle real-time updates
-          // for (var doc in docs) {
-          //   if (!_documents.any((d) => d.id == doc.id)) {
-          //     _documents.insert(0, doc);
-          //   }
-          // }
-          _documents.addAll(snapshot.docs);
-        });
-      }
-      _streamController.add(_documents);
-    });
-  }
-
-  Future<void> _loadMoreData() async {
-    String senderId = _authService.getCurrentUser()!.uid;
-    if (_lastDocument == null || !_hasMoreData) return;
+  // Load more messages when the user scrolls to the top
+  void _loadMoreMessages() async {
+    if (_lastMessageDocument == null || _loadingMore) return;
 
     setState(() {
       _loadingMore = true;
     });
 
-    Query query = await _chatService.loadMoreData(
-        senderId, widget.receiverId, _lastDocument!, _limit);
+    QuerySnapshot moreMessagesSnapshot = await _firestore
+        .collection("chat_rooms")
+        .doc(chatRoomId)
+        .collection('messages')
+        .orderBy('timestamp', descending: false)
+        .startAfterDocument(_lastMessageDocument!)
+        .limit(_messageLimit)
+        .get();
 
-    QuerySnapshot querySnapshot = await query.get();
-
-    if (querySnapshot.docs.isNotEmpty) {
+    if (moreMessagesSnapshot.docs.isNotEmpty) {
       setState(() {
-        _documents.addAll(querySnapshot.docs);
-        _lastDocument = querySnapshot.docs.last;
-        _loadingMore = false;
+        _messages.addAll(moreMessagesSnapshot.docs);
+        _lastMessageDocument = moreMessagesSnapshot.docs.last;
       });
-      _streamController.add(_documents);
     } else {
       setState(() {
-        _hasMoreData = false;
-        _loadingMore = false; // No more data to load
+        _hasMoreMessages = false; // No more messages to load
       });
     }
 
@@ -125,24 +109,113 @@ class _TestChatPageState extends State<TestChatPage> {
     });
   }
 
+  // Set up a real-time listener for new messages
+  void _listenForNewMessages() {
+    _messageSubscription = _firestore
+        .collection("chat_rooms")
+        .doc(chatRoomId)
+        .collection('messages')
+        .orderBy('timestamp', descending: false)
+        .limit(_messageLimit)
+        .snapshots()
+        .listen((snapshot) {
+      if (snapshot.docs.isNotEmpty) {
+        setState(() {
+          _messages = snapshot.docs;
+          _lastMessageDocument = _messages.last;
+        });
+      }
+    });
+  }
+
   @override
   void dispose() {
-    // TODO: implement dispose
-    focusNode.dispose();
-    _messageTextController.dispose();
-    _scrollController.dispose();
-    _streamController.close();
+    _messageSubscription?.cancel();
     super.dispose();
   }
 
-  ScrollController _scrollController = ScrollController();
-
-  void _scrollDownPosition() {
-    _scrollController.animateTo(_scrollController.position.maxScrollExtent,
-        duration: const Duration(seconds: 1), curve: Curves.fastOutSlowIn);
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.receiverEmail)),
+      body: Column(
+        children: [
+          Expanded(
+            child: ReorderableListView.builder(
+              scrollController: _scrollController,
+              reverse: true,
+              itemCount: _messages.length + (_loadingMore ? 1 : 0),
+              onReorder: _onReorder,
+              itemBuilder: (context, index) {
+                if (index == _messages.length) {
+                  return const Center(
+                    key: ValueKey('loading'),
+                    child: CircularProgressIndicator(),
+                  );
+                }
+                DocumentSnapshot doc = _messages[index];
+                return _buildMessageItem(doc, index);
+              },
+            ),
+          ),
+          _messageField(),
+        ],
+      ),
+    );
   }
 
-  //send message function
+  // Handle reordering of messages
+  void _onReorder(int oldIndex, int newIndex) {
+    setState(() {
+      if (newIndex > _messages.length - 1) newIndex -= 1;
+
+      final item = _messages.removeAt(oldIndex);
+      _messages.insert(newIndex, item);
+    });
+  }
+
+  // Build a single message bubble
+  Widget _buildMessageItem(DocumentSnapshot doc, int index) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+    bool isCurrentUser = data['senderId'] == _authService.getCurrentUser()!.uid;
+    final alignment = isCurrentUser ? Alignment.centerRight : Alignment.centerLeft;
+
+    return Container(
+      key: ValueKey(doc.id), // Ensure each message has a unique key for reordering
+      alignment: alignment,
+      child: ChatBubble(
+        text: data['message'],
+        isCurrentUser: isCurrentUser,
+      ),
+    );
+  }
+
+  // Message input field
+  Widget _messageField() {
+    return Row(
+      children: [
+        Expanded(
+          child: MyTextField(
+            focusNode: focusNode,
+            controller: _messageTextController,
+            obsecureText: false,
+            hintText: 'Type a message...',
+          ),
+        ),
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 10),
+          color: Theme.of(context).colorScheme.primary,
+          child: IconButton(
+            onPressed: sendMessage,
+            icon: const Icon(Icons.send),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Send a message
   void sendMessage() async {
     if (_messageTextController.text.isNotEmpty) {
       await _chatService
@@ -154,152 +227,15 @@ class _TestChatPageState extends State<TestChatPage> {
     }
   }
 
-  //send message function
-  void test200Message() async {
-    await _chatService
-        .test200Message(widget.receiverId, _messageTextController.text)
-        .then((_) {
-      _messageTextController.clear();
-      //_scrollDownPosition();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.background,
-      appBar: AppBar(
-        title: Text(widget.receiverEmail),
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.grey,
-        elevation: 0,
-      ),
-      body: Column(
-        children: [
-          //message list
-          Expanded(child: _buildMessageList()),
-          _messageField(),
-          const SizedBox(
-            height: 30,
-          ),
-
-          /*Container(
-            color: Theme.of(context).colorScheme.primary,
-            margin: const EdgeInsets.symmetric(horizontal: 10),
-            child: IconButton(
-              onPressed: test200Message,
-              icon: const Icon(Icons.send),
-            ),
-          )*/
-
-          //message text field
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMessageList() {
-    return StreamBuilder(
-        stream: _streamController.stream,
-        builder: (context, snapshot) {
-          //error
-          if (snapshot.hasError) {
-            return const Text("Error...");
-          }
-
-          // loading
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Text("Loading...");
-          }
-
-          if (snapshot.data!.isEmpty) {
-            _hasMoreData = false;
-            return Container();
-          }
-
-          List<DocumentSnapshot> docs =
-              snapshot.data!; // Store the last document for pagination
-
-          return ReorderableListView.builder(
-            onReorder: (int oldIndex, int newIndex) {
-              setState(() {
-                if (newIndex > oldIndex) {
-                  newIndex -= 1;
-                }
-                final item = docs.removeAt(oldIndex);
-                docs.insert(newIndex, item);
-                print(docs);
-              });
-            },
-            scrollController: _scrollController,
-            itemCount: docs.length + (_loadingMore ? 1 : 0),
-            itemBuilder: (context, index) {
-              if (index == docs.length) {
-                return Center(
-                  key: UniqueKey(),
-                    child: const CircularProgressIndicator());
-              }
-
-              DocumentSnapshot doc = docs[index];
-              return _buildMessageItem(doc);
-            },
-          );
-
-          /*ListView.builder(
-            controller: _scrollController,
-            itemCount: docs.length + (_loadingMore ? 1 : 0),
-            itemBuilder: (context, index) {
-              if (index == docs.length) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              DocumentSnapshot doc = docs[index];
-              return _buildMessageItem(doc);
-            },
-          ); */
-        });
-  }
-
-  Widget _buildMessageItem(DocumentSnapshot doc) {
-    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-
-    //is currentuser?
-
-    bool isCurrentUser = data["senderId"] == _authService.getCurrentUser()!.uid;
-
-    final aligment =
-        isCurrentUser ? Alignment.centerRight : Alignment.centerLeft;
-
-    return Container(
-      key: ValueKey(doc),
-      alignment: aligment,
-      child: ChatBubble(
-        text: data["message"],
-        isCurrentUser: isCurrentUser,
-      ),
-    );
-  }
-
-  // message text field
-
-  Widget _messageField() {
-    return Row(
-      children: [
-        Expanded(
-            child: MyTextField(
-                focusNode: focusNode,
-                controller: _messageTextController,
-                obsecureText: false,
-                hintText: "Type a message...")),
-        Container(
-          color: Theme.of(context).colorScheme.primary,
-          margin: const EdgeInsets.symmetric(horizontal: 10),
-          child: IconButton(
-            onPressed: sendMessage,
-            icon: const Icon(Icons.send),
-          ),
-        )
-      ],
+  // Scroll to the bottom of the chat
+  void _scrollDownPosition() {
+    _scrollController.animateTo(
+      _scrollController.position.minScrollExtent,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
     );
   }
 }
+
+
+

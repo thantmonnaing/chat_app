@@ -39,7 +39,8 @@ dependencies:
   firebase_auth: ^5.2.1
   cloud_firestore: ^5.4.1
   provider: ^6.1.2
-  firebase_pagination: ^4.0.1
+  #firebase_pagination: ^4.0.1
+  get_it: ^7.7.0
 
 dev_dependencies:
   flutter_test:

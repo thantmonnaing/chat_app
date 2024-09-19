@@ -1,169 +1,71 @@
-import 'package:chat_app/components/my_textfield.dart';
-import 'package:chat_app/components/user_tile.dart';
-import 'package:chat_app/services/auth/auth_service.dart';
-import 'package:chat_app/services/chat/chat_service.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../components/chat_bubble.dart';
-import '../components/my_drawer.dart';
+import '../services/state/chat_state.dart';
 
-class ChatPaginationPage extends StatefulWidget {
+class ChatPaginationPage extends StatelessWidget {
   final String receiverEmail;
   final String receiverId;
-
-  ChatPaginationPage({super.key, required this.receiverEmail, required this.receiverId});
+  const ChatPaginationPage({Key? key, required this.receiverEmail, required this.receiverId}) : super(key: key);
 
   @override
-  State<ChatPaginationPage> createState() => _ChatPaginationPageState();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Realtime Pagination')),
+      body: MessageList(receiverId:receiverId)
+    );
+  }
 }
 
-class _ChatPaginationPageState extends State<ChatPaginationPage> {
-  // chat & auth services
-  final ChatService _chatService = ChatService();
+class MessageList extends StatefulWidget {
+  final String receiverId;
+  const MessageList({
+    Key? key, required this.receiverId,
+  }) : super(key: key);
 
-  final AuthService _authService = AuthService();
+  @override
+  State<MessageList> createState() => _MessageListState();
+}
 
-  FocusNode focusNode = FocusNode();
-
-  //message textField
-  TextEditingController _messageTextController = TextEditingController();
+class _MessageListState extends State<MessageList> {
 
   @override
   void initState() {
     // TODO: implement initState
     super.initState();
-    // first time scroll
-    Future.delayed(const Duration(milliseconds: 500), () => _scrollDownPosition());
-
-    // textField focus scroll position
-    focusNode.addListener(() {
-      if (focusNode.hasFocus) {
-        Future.delayed(
-            const Duration(milliseconds: 500), () => _scrollDownPosition());
-      }
-    });
+    Provider.of<ChatState>(context, listen: false)
+        .initialState(10, widget.receiverId);
   }
-
   @override
-  void dispose() {
-    // TODO: implement dispose
-    focusNode.dispose();
-    _messageTextController.dispose();
-    super.dispose();
+  Widget build(BuildContext context) {
+    // final users = context.select((HomeState value) => value.users);
+    final messages = context.watch<ChatState>().messages;
+
+    final read = context.read<ChatState>();
+    return ListView.builder(
+      itemCount: messages.length,
+      controller: read.homeScrollController,
+      itemBuilder: (_, index) {
+        return ChatBubble(
+          text: messages[index].message,
+          isCurrentUser: true,
+        );
+      },
+    );
   }
+}
 
-  ScrollController _scrollController = ScrollController();
-
-  void _scrollDownPosition() {
-    _scrollController.animateTo(_scrollController.position.maxScrollExtent,
-        duration: const Duration(seconds: 1), curve: Curves.fastOutSlowIn);
-  }
-
-  //send message function
-  void sendMessage() async {
-    if (_messageTextController.text.isNotEmpty) {
-      await _chatService
-          .sendMessage(widget.receiverId, _messageTextController.text)
-          .then((_) {
-        _messageTextController.clear();
-        _scrollDownPosition();
-      });
-    }
-  }
-
-
+class SomeWidget extends StatelessWidget {
+  const SomeWidget({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.background,
-      appBar: AppBar(
-        title: Text(widget.receiverEmail),
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.grey,
-        elevation: 0,
-      ),
-      body: Column(
-        children: [
-          //message list
-          Expanded(child: _buildMessageList()),
-          _messageField(),
-          const SizedBox(
-            height: 30,
-          ),
+    final read = context.read<ChatState>();
 
-          //message text field
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMessageList() {
-    String senderId = _authService.getCurrentUser()!.uid;
-    return StreamBuilder(
-        stream: _chatService.getMessages(senderId, widget.receiverId),
-        builder: (context, snapshot) {
-          //error
-          if (snapshot.hasError) {
-            return const Text("Error...");
-          }
-
-          // loading
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Text("Loading...");
-          }
-
-          // return list data
-          return ListView(
-            controller: _scrollController,
-            children: snapshot.data!.docs
-                .map((doc) => _buildMessageItem(doc))
-                .toList(),
-          );
-        });
-  }
-
-  Widget _buildMessageItem(DocumentSnapshot doc) {
-    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-
-    //is currentuser?
-
-    bool isCurrentUser = data["senderId"] == _authService.getCurrentUser()!.uid;
-
-    final aligment =
-        isCurrentUser ? Alignment.centerRight : Alignment.centerLeft;
-
-    return Container(
-      alignment: aligment,
-      child: ChatBubble(
-        text: data["message"],
-        isCurrentUser: isCurrentUser,
-      ),
-    );
-  }
-
-  // message text field
-
-  Widget _messageField() {
-    return Row(
-      children: [
-        Expanded(
-            child: MyTextField(
-                focusNode: focusNode,
-                controller: _messageTextController,
-                obsecureText: false,
-                hintText: "Type a message...")),
-        Container(
-          color: Theme.of(context).colorScheme.primary,
-          margin: const EdgeInsets.symmetric(horizontal: 10),
-          child: IconButton(
-            onPressed: sendMessage,
-            icon: const Icon(Icons.send),
-          ),
-        )
-      ],
+    return InkWell(
+      onTap: () => read.setLoading(true),
+      child: Text(read.messages.length.toString()),
     );
   }
 }
